@@ -133,7 +133,7 @@ class VarLenVideoDataset(BaseVideoDataset):
 
     def get_traj_per_file(self, path):
         with h5py.File(path, 'r') as F:
-            return F['traj_per_file'].value
+            return F['traj_per_file'][()]
 
     def __getitem__(self, index):
         file_index = index // self.traj_per_file
@@ -146,12 +146,12 @@ class VarLenVideoDataset(BaseVideoDataset):
 
                 # Fetch data into a dict
                 if key + '/images' in F.keys():
-                    data_dict = AttrDict(images=(F[key + '/images'].value))
+                    data_dict = AttrDict(images=(F[key + '/images'][()]))
                 else:
                     data_dict = AttrDict()
                 for name in F[key].keys():
                     if name in ['states', 'actions', 'pad_mask']:
-                        data_dict[name] = F[key + '/' + name].value.astype(np.float32)
+                        data_dict[name] = F[key + '/' + name][()].astype(np.float32)
 
                 # Make length consistent
                 end_ind = np.argmax(data_dict.pad_mask * np.arange(data_dict.pad_mask.shape[0], dtype=np.float32), 0)

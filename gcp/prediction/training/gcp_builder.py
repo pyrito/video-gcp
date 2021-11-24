@@ -56,7 +56,8 @@ class GCPBuilder(BaseTrainer):
             self.logger = None
 
         ## Set up CUDA
-        self.use_cuda = torch.cuda.is_available() and not global_params.debug
+        # self.use_cuda = torch.cuda.is_available() and not global_params.debug
+        self.use_cuda = False
         self.device = torch.device('cuda') if self.use_cuda else torch.device('cpu')
         if cmd_args.gpu != -1:
             os.environ["CUDA_VISIBLE_DEVICES"] = str(cmd_args.gpu)
@@ -73,7 +74,7 @@ class GCPBuilder(BaseTrainer):
 
         ## Build model
         model = self._hp.model(model_conf, self.logger)
-        if torch.cuda.device_count() > 1:
+        if self.use_cuda and torch.cuda.device_count() > 1:
             print("\nUsing {} GPUs!\n".format(torch.cuda.device_count()))
             model = DataParallelWrapper(model)
         model.device = self.device
@@ -114,7 +115,7 @@ class GCPBuilder(BaseTrainer):
             visualization.PARAMS.visualize = dataset_class.visualize
         else:
             dataset_class = FolderSplitVarLenVideoDataset
-    
+        print(f"dataset_class: {dataset_class}")
         loader = dataset_class(get_dataset_path(self._hp.dataset_name), model._hp, data_conf,
                                phase=phase, shuffle=not self.cmd_args.metric, dataset_size=dataset_size). \
             get_data_loader(self._hp.batch_size, n_repeat)
@@ -156,6 +157,7 @@ class GCPBuilder(BaseTrainer):
 
         # update with custom params if available
         update_data_conf = {}
+        print(conf_module)
         if hasattr(conf_module, 'data_config'):
             update_data_conf = conf_module.data_config
         elif conf_module.configuration.dataset_name is not None:

@@ -38,7 +38,7 @@ class TreeModule(nn.Module, ProbabilisticModel):
         pred_inp_dim = hp.nz_enc * 2 + hp.nz_vae
         if self._hp.context_every_step:
             pred_inp_dim = pred_inp_dim + hp.nz_enc * 2
-            
+
         if hp.tree_lstm:
             self.subgoal_pred, self.lstm_initializer = build_tree_lstm(hp, pred_inp_dim, hp.nz_enc)
         else:

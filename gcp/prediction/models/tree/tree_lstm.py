@@ -46,8 +46,10 @@ class SplitLinTreeHiddenStatePredictorModel(HiddenStatePredictorModel):
         chunked_projected = [projection(concat_inputs(h1, h2))
                              for projection, h1, h2 in zip(self.projections, chunked_hidden1, chunked_hidden2)]
         hidden_state = torch.cat(chunked_projected, dim=1)
-        return super().forward(hidden_state, *inputs)
+        out = super().forward(hidden_state, *inputs)
+        print(f"out[0]: {out[0].shape}, out[1]: {out[1].shape}")
 
+        return out
 
 def build_tree_lstm(hp, input_dim, output_dim):
     if hp.tree_lstm == 'sum':
@@ -59,6 +61,7 @@ def build_tree_lstm(hp, input_dim, output_dim):
     else:
         raise ValueError("don't know this TreeLSTM type")
 
+    print(f"build_tree_lstm, input_dim: {input_dim} output_dim: {output_dim}")
     subgoal_pred = cls(hp, input_dim, output_dim)
     lstm_initializer = get_lstm_initializer(hp, subgoal_pred)
     
