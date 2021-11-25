@@ -1,5 +1,9 @@
+from typing_extensions import Required
 import numpy as np
 
+from blox import AttrDict
+
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import copy
@@ -8,7 +12,7 @@ from gcp.prediction.models.transformer.encoder import Encoder, EncoderLayer
 from gcp.prediction.models.transformer.decoder import Decoder, DecoderLayer
 from gcp.prediction.models.transformer.attention import MultiHeadedAttention
 from gcp.prediction.models.transformer.embeddings import PositionalEncoding, Embeddings
-from gcp.prediction.models.transformer.utils import PositionwiseFeedForward
+from gcp.prediction.models.transformer.utils import PositionwiseFeedForward, make_std_mask
 
 
 class EncoderDecoder(nn.Module):
@@ -45,7 +49,7 @@ class Generator(nn.Module):
         return F.log_softmax(self.proj(x), dim=-1)
 
 
-def make_model(src_vocab, tgt_vocab, N=6, 
+def make_transformer(N=6, 
                d_model=512, d_ff=2048, h=8, dropout=0.1):
     "Helper: Construct a model from hyperparameters."
     # TODO(rnair, vkarthik): dont need embeddings, dont need generator (since this is seq2seq)
@@ -67,51 +71,31 @@ def make_model(src_vocab, tgt_vocab, N=6,
             nn.init.xavier_uniform(p)
     return model
 
-def transformer_forward(model, context, sequence):
-    # TODO(rnair, vkarthik):
-    # - Need goal state to be prepended to the sequence
-        # Decoder Output: S0 S1 S2 ... SG <STOP>
-        #                  |  |  |      |   |
-        # Encoder Input:  SG S0 S1 ... SG-1 SG
-    # - Need to mask out upper triangle
-    # - Need to figure out what mask/stop sequences are
-    # - Need to interface with gcp input/output structure
-        # context: tensor of 16 x 64 x 1 x 1, contains S0 + SG
-        # sequence: tensor of 16 x 79 x 32, contains S1 -> SG
-        # can modify this input to be whatever
-        # might be good to not take a slice in the outer function
-        # would be better to just pass in what we need - the seq without SG + SG
+def transformer_forward(model, e_0, e_g, sequence, inp_masks):
+    outputs = AttrDict()
+    sequence = sequence.squeeze()
+    e_0 = e_0.squeeze().unsqueeze(1)
+    e_g = e_g.squeeze().unsqueeze(1)
+    src_input = torch.cat([e_g, e_0, sequence[:, :-1, :]], dim=1)
+    tgt_output = torch.cat([e_0, sequence], dim=1)
+    tgt_mask = make_std_mask(inp_masks, 0)
+    src_masks = torch.bmm(inp_masks.unsqueeze(2), inp_masks.unsqueeze(1))
+    out = model.forward(src_input, tgt_output, 
+                            src_masks, tgt_mask)
+    
+    outputs.raw_x = out
+    out = out[:, 1:, :].unsqueeze(-1).unsqueeze(-1)
+    outputs.x = out
+    return outputs
 
-    # Some stuff in this might be helpful, especially for the masking:
-    # class Batch:
-    #     "Object for holding a batch of data with mask during training."
-    #     def __init__(self, src, trg=None, pad=0):
-    #         self.src = src
-    #         self.src_mask = (src != pad).unsqueeze(-2)
-    #         if trg is not None:
-    #             self.trg = trg[:, :-1]
-    #             self.trg_y = trg[:, 1:]
-    #             self.trg_mask = \
-    #                 self.make_std_mask(self.trg, pad)
-    #             self.ntokens = (self.trg_y != pad).data.sum()
-        
-    #     @staticmethod
-    #     def make_std_mask(tgt, pad):
-    #         "Create a mask to hide padding and future words."
-    #         tgt_mask = (tgt != pad).unsqueeze(-2)
-    #         tgt_mask = tgt_mask & Variable(
-    #             subsequent_mask(tgt.size(-1)).type_as(tgt_mask.data))
-    #         return tgt_mask
-    pass
-
-
-def transformer_loss(model, logits, labels):
-    # TODO(rnair, vkarthik): need to write the loss function that returns a dictionary as follows:
-    # tf_loss: {
-    #   'value': 1 x 1 tensor of loss value,
-    #   'weight': 1.0,
-    #   'breakdown': length seq_len(79) tensor of loss value per item in sequence
-    # }
-    # Use MSELoss to calculate loss between each predicted element and its corresponding decoded vector
-    # sum of MSELosses is the total loss.
-    pass
+def transformer_loss(model, logits, labels, seq_len):
+    loss_info = AttrDict()
+    loss = nn.MSELoss()
+    breakdown = torch.Tensor(seq_len)
+    for i in range(seq_len):
+        breakdown[i] = loss(logits[:, i, :], labels[:, i, :])
+    value = torch.mean(breakdown)
+    loss_info.value = value
+    loss_info.weight = 1.0
+    loss_info.breakdown = breakdown[1:]
+    return loss_info

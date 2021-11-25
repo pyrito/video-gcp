@@ -8,7 +8,7 @@ from blox.torch.losses import KLDivLoss2
 from blox.torch.models.vrnn import VRNNCell
 from gcp.evaluation.evaluation_matching import DTWEvalBinding
 from gcp.prediction.models.base_gcp import BaseGCPModel
-from gcp.prediction.models.transformer.transformer import make_model
+from gcp.prediction.models.transformer.transformer import make_transformer, transformer_forward, transformer_loss
 
 
 class SequentialRecModule(nn.Module):
@@ -27,6 +27,8 @@ class SequentialRecModule(nn.Module):
             context_size += hp.nz_enc
             
         self.lstm = VRNNCell(hp, input_size, context_size, hp.nz_enc * 2).make_lstm()
+        self.transformer = make_transformer(N=4, d_model=32, d_ff=512)
+
         self.eval_binding = DTWEvalBinding(hp)
         if hp.skip_from_parents:
             raise NotImplementedError("SVG doesn't support skipping from parents")
@@ -36,9 +38,6 @@ class SequentialRecModule(nn.Module):
         initial_inputs = AttrDict(x=inputs.e_0)
         context = torch.cat([inputs.e_0, inputs.e_g], dim=1)
         static_inputs = AttrDict()
-        print(inputs.e_0.shape)
-        print(inputs.e_g.shape)
-        print("we are in forward!!")
         if 'enc_traj_seq' in inputs:
             lstm_inputs.x_prime = inputs.enc_traj_seq[:, 1:]
         if 'z' in inputs:
@@ -51,27 +50,6 @@ class SequentialRecModule(nn.Module):
         
         self.lstm.cell.init_state(initial_inputs.x, context, lstm_inputs.get('more_context', None))
         # Note: the last image is also produced. The actions are defined as going to the image
-        print(lstm_inputs.x_prime.shape)
-        print('===lstm inps===')
-        for k in lstm_inputs:
-            try:
-                print(f'{k}: {lstm_inputs[k].shape}')
-            except:
-                print(f'{k}: {lstm_inputs[k]}')
-        print('===init inps===')
-        for k in initial_inputs:
-            try:
-                print(f'{k}: {initial_inputs[k].shape}')
-            except:
-                print(f'{k}: {initial_inputs[k]}')
-        print('===stat inps===')
-        for k in static_inputs:
-            try:
-                print(f'{k}: {static_inputs[k].shape}')
-            except:
-                print(f'{k}: {static_inputs[k]}')
-        
-        print('===length: ', self._hp.max_seq_len - 1, '===')
 
         # INPUT/OUTPUT:
             # ===lstm inps===
@@ -87,51 +65,31 @@ class SequentialRecModule(nn.Module):
             # p_z: torch.Size([16, 79, 32, 1, 1])
             # https://nlp.seas.harvard.edu/2018/04/03/attention.html#full-model
 
-        outputs = self.lstm(inputs=lstm_inputs,
-                            initial_inputs=initial_inputs,
-                            static_inputs=static_inputs,
-                            length=self._hp.max_seq_len - 1)
+        outputs = transformer_forward(model=self.transformer, 
+                                      e_0=inputs.e_0, 
+                                      e_g=inputs.e_g, 
+                                      sequence=lstm_inputs.x_prime, 
+                                      inp_masks=inputs.pad_mask)
+        # outputs = self.lstm(inputs=lstm_inputs,
+        #                     initial_inputs=initial_inputs,
+        #                     static_inputs=static_inputs,
+        #                     length=self._hp.max_seq_len - 1)
 
-        print('===lstm outputs===')
-        for k in outputs:
-            try:
-                print(f'{k}: {outputs[k].shape}')
-            except:
-                print(f'{k}: {outputs[k]}')
-
-        # print('===making transformer===')
-        # tmp_model = make_model(10, 10, 2)        
-        # print(tmp_model)
-        # assert False
-        print(f"after: {outputs.x.shape}")
         outputs.encodings = outputs.pop('x')
         outputs.update(self.decoder.decode_seq(inputs, outputs.encodings))
         outputs.images = torch.cat([inputs.I_0[:, None], outputs.images], dim=1)
-        # print(outputs.keys())
-        print('===outputs===')
-        for k in outputs:
-            try:
-                print(f'{k}: {outputs[k].shape}')
-            except:
-                print(f'{k}: {outputs[k]}')
         return outputs
     
     def loss(self, inputs, outputs, log_error_arr=False):
         losses = self.decoder.loss(inputs, outputs, extra_action=False, log_error_arr=log_error_arr)
         
         # TODO don't place loss on the final image
-        weights = broadcast_final(inputs.pad_mask[:, 1:], outputs.p_z.mu)
-        losses.kl = KLDivLoss2(self._hp.kl_weight, breakdown=1, free_nats_per_dim=self._hp.free_nats)\
-            (outputs.q_z, outputs.p_z, weights=weights, log_error_arr=log_error_arr)
-
-        print('===loss outputs===')
-        for k in losses:
-            try:
-                print(f'{k}: {losses[k].shape}')
-            except:
-                print(f'{k}: {losses[k]}')
-        print(losses.kl['breakdown'].shape)
-        assert False
+        model_out = outputs.raw_x
+        labels = inputs.enc_traj_seq.squeeze()
+        losses.seq_loss = transformer_loss(self.transformer, 
+                                           model_out,
+                                           labels,
+                                           self._hp.max_seq_len)
         return losses
     
     def get_sample_with_len(self, i_ex, len, outputs, inputs, pruning_scheme, name=None):

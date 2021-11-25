@@ -288,6 +288,8 @@ class BaseGCPModel(BaseModel):
         # Negative Log-likelihood (upper bound)
         if 'dense_img_rec' in losses and 'kl' in losses:
             losses.nll = AttrDict(value=losses.dense_img_rec.value + losses.kl.value, weight=0.0)
+        elif 'dense_img_rec' in losses and 'seq_loss' in losses:
+            losses.nll = AttrDict(value=losses.dense_img_rec.value + losses.seq_loss.value, weight=1.0)
 
         return losses
     

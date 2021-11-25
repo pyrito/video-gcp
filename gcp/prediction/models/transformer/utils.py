@@ -2,12 +2,20 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.autograd import Variable
 import copy
 
 def clones(module, N):
     "Produce N identical layers."
     return nn.ModuleList([copy.deepcopy(module) for _ in range(N)])
 
+
+def make_std_mask(tgt, pad):
+    "Create a mask to hide padding and future words."
+    tgt_mask = (tgt != pad).unsqueeze(-2)
+    tgt_mask = tgt_mask & Variable(
+        subsequent_mask(tgt.size(-1)).type_as(tgt_mask.data))
+    return tgt_mask
 
 def subsequent_mask(size):
     "Mask out subsequent positions."
