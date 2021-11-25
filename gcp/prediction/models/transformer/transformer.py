@@ -16,13 +16,12 @@ class EncoderDecoder(nn.Module):
     A standard Encoder-Decoder architecture. Base for this and many 
     other models.
     """
-    def __init__(self, encoder, decoder, src_embed, tgt_embed, generator):
+    def __init__(self, encoder, decoder, src_embed, tgt_embed):
         super(EncoderDecoder, self).__init__()
         self.encoder = encoder
         self.decoder = decoder
         self.src_embed = src_embed
         self.tgt_embed = tgt_embed
-        self.generator = generator
         
     def forward(self, src, tgt, src_mask, tgt_mask):
         "Take in and process masked src and target sequences."
@@ -58,9 +57,8 @@ def make_model(src_vocab, tgt_vocab, N=6,
         Encoder(EncoderLayer(d_model, c(attn), c(ff), dropout), N),
         Decoder(DecoderLayer(d_model, c(attn), c(attn), 
                              c(ff), dropout), N),
-        nn.Sequential(Embeddings(d_model, src_vocab), c(position)),
-        nn.Sequential(Embeddings(d_model, tgt_vocab), c(position)),
-        Generator(d_model, tgt_vocab))
+        c(position),
+        c(position))
     
     # This was important from their code. 
     # Initialize parameters with Glorot / fan_avg.
@@ -69,9 +67,17 @@ def make_model(src_vocab, tgt_vocab, N=6,
             nn.init.xavier_uniform(p)
     return model
 
-def transformer_forward(model):
-    # TODO(rnair, vkarthik): do the stuff with upper triangle masking, interface with inputs as gcp paper needs
-    # Something like this:
+def transformer_forward(model, context, sequence):
+    # TODO(rnair, vkarthik):
+    # - Need goal state to be prepended to the sequence
+        # Decoder Output: S0 S1 S2 ... SG <STOP>
+        #                  |  |  |      |   |
+        # Encoder Input:  SG S0 S1 ... SG-1 SG
+    # - Need to mask out upper triangle
+    # - Need to figure out what mask/stop sequences are
+    # - Need to interface with gcp input/output structure
+
+    # Some stuff in this might be helpful:
     # class Batch:
     #     "Object for holding a batch of data with mask during training."
     #     def __init__(self, src, trg=None, pad=0):
@@ -95,5 +101,12 @@ def transformer_forward(model):
 
 
 def transformer_loss(model, logits, labels):
-    # TODO(rnair, vkarthik): might need to update the loss function accordingly
+    # TODO(rnair, vkarthik): need to write the loss function that returns a dictionary as follows:
+    # tf_loss: {
+    #   'value': 1 x 1 tensor of loss value,
+    #   'weight': 1.0,
+    #   'breakdown': length seq_len(79) tensor of loss value per item in sequence
+    # }
+    # Use MSELoss to calculate loss between each predicted element and its corresponding decoded vector
+    # sum of MSELosses is the total loss.
     pass

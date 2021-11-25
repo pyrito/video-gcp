@@ -75,11 +75,11 @@ class SequentialRecModule(nn.Module):
 
         # INPUT/OUTPUT:
             # ===lstm inps===
-            # x_prime: torch.Size([16, 79, 32, 1, 1])
+            # x_prime: torch.Size([16, 79, 32, 1, 1]) [All states EXCEPT the first one]
             # ===init inps===
-            # x: torch.Size([16, 32, 1, 1])
+            # x: torch.Size([16, 32, 1, 1]) [First stage]
             # ===stat inps===
-            # context: torch.Size([16, 64, 1, 1])
+            # context: torch.Size([16, 64, 1, 1]) [Concatenation of first step and goal step]
             # ===length:  79 ===
             # ===outputs===
             # q_z: torch.Size([16, 79, 32, 1, 1])
@@ -130,6 +130,7 @@ class SequentialRecModule(nn.Module):
                 print(f'{k}: {losses[k].shape}')
             except:
                 print(f'{k}: {losses[k]}')
+        print(losses.kl['breakdown'].shape)
         assert False
         return losses
     
