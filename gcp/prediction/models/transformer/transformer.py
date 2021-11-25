@@ -76,8 +76,13 @@ def transformer_forward(model, context, sequence):
     # - Need to mask out upper triangle
     # - Need to figure out what mask/stop sequences are
     # - Need to interface with gcp input/output structure
+        # context: tensor of 16 x 64 x 1 x 1, contains S0 + SG
+        # sequence: tensor of 16 x 79 x 32, contains S1 -> SG
+        # can modify this input to be whatever
+        # might be good to not take a slice in the outer function
+        # would be better to just pass in what we need - the seq without SG + SG
 
-    # Some stuff in this might be helpful:
+    # Some stuff in this might be helpful, especially for the masking:
     # class Batch:
     #     "Object for holding a batch of data with mask during training."
     #     def __init__(self, src, trg=None, pad=0):
